@@ -5,7 +5,7 @@ use App\Http\Controllers\TenantController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('welcome');
+    return view('tv.index');
 });
 
 Route::get('/dashboard', function () {
