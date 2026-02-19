@@ -575,8 +575,6 @@
     </footer>
 
     <script>
-        const M3U8_URL = 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8';
-
         let allChannels = [];
         let currentFilter = 'all';
         let hls = null;
@@ -626,14 +624,25 @@
 
         async function fetchPlaylist() {
             try {
-                const response = await fetch(M3U8_URL);
-                const text = await response.text();
-                parseM3U8(text);
+
+                const response = await fetch('/channels');
+                const channels = await response.json();
+
+                allChannels = channels;
+
+                renderFilterButtons();
+                renderChannels(allChannels);
+
+                loading.style.display = 'none';
+
             } catch (error) {
-                console.error('Error fetching playlist:', error);
-                loading.innerHTML = '<p>Error loading channels. Please try again later.</p>';
+
+                console.error(error);
+                loading.innerHTML = 'Failed loading channels';
+
             }
         }
+
 
         function parseM3U8(text) {
             const lines = text.split('\n');
