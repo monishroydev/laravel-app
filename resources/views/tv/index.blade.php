@@ -228,9 +228,14 @@
 
         .channel-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 24px;
             padding: 20px 0 80px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .channel-card {
@@ -238,15 +243,19 @@
             border-radius: 16px;
             overflow: hidden;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border: 1px solid var(--border);
             position: relative;
+            animation: fadeIn 0.6s ease forwards;
+            background: rgba(20, 20, 20, 0.6);
+            backdrop-filter: blur(10px);
         }
 
         .channel-card:hover {
-            transform: translateY(-8px);
+            transform: translateY(-8px) scale(1.02);
             box-shadow: var(--glow);
             border-color: var(--primary);
+            z-index: 2;
         }
 
         .channel-card .logo-container {
@@ -607,17 +616,61 @@
         let currentFilter = 'all';
         let hls = null;
         let currentPage = 1;
-        const itemsPerPage = 20;
+        const itemsPerPage = 60;
 
-        // ... (Keep your theme toggle and header scroll logic here) ...
+        const searchInput = document.getElementById('searchInput');
+        const channelGrid = document.getElementById('channelGrid');
+        const loading = document.getElementById('loading');
+        const noResults = document.getElementById('noResults');
+        const filterBar = document.getElementById('filterBar');
+
+        // Theme toggle logic
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+        const sunIcon = document.querySelector('.sun-icon');
+        const moonIcon = document.querySelector('.moon-icon');
+
+        themeToggle.addEventListener('click', () => {
+            const isDark = html.getAttribute('data-theme') === 'dark';
+            html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            sunIcon.style.display = isDark ? 'block' : 'none';
+            moonIcon.style.display = isDark ? 'none' : 'block';
+        });
+
+        // Header scroll logic
+        window.addEventListener('scroll', () => {
+            const header = document.getElementById('header');
+            if (window.scrollY > 50) {
+                header.classList.add('scrolled');
+            } else {
+                header.classList.remove('scrolled');
+            }
+        });
+
+        // Search listener
+        searchInput.addEventListener('input', () => {
+            filterChannels(currentFilter);
+        });
+
+        // Close player listener
+        document.getElementById('closePlayer').addEventListener('click', () => {
+            const playerModal = document.getElementById('playerModal');
+            const video = document.getElementById('videoPlayer');
+            playerModal.classList.remove('active');
+            video.pause();
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+            video.src = '';
+        });
 
         async function fetchPlaylist() {
             try {
                 loading.style.display = 'flex';
                 const response = await fetch('/channels');
                 allChannels = await response.json();
-console.log(allChannels);
-
+                console.log(allChannels);
 
                 renderFilterButtons();
                 filterChannels('all'); // Initial render
@@ -626,6 +679,28 @@ console.log(allChannels);
                 console.error(error);
                 loading.innerHTML = 'Failed loading channels';
             }
+        }
+
+        function renderFilterButtons() {
+            // Get unique countries, exclude empty/undefined
+            const countries = new Set(allChannels.map(ch => ch.country).filter(c => c && c.trim() !== ''));
+            
+            filterBar.innerHTML = '<button class="filter-btn active" data-filter="all">All Channels</button>';
+            
+            Array.from(countries).sort().forEach(country => {
+                const btn = document.createElement('button');
+                btn.className = 'filter-btn';
+                btn.dataset.filter = country;
+                btn.textContent = country;
+                filterBar.appendChild(btn);
+            });
+
+            // Add event listeners to all buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    filterChannels(e.target.dataset.filter);
+                });
+            });
         }
 
         function filterChannels(country) {
@@ -642,7 +717,7 @@ console.log(allChannels);
             // Filter the master list
             displayedChannels = allChannels.filter(ch => {
                 const matchesCountry = (country === 'all' || ch.country === country);
-                const matchesSearch = ch.name.toLowerCase().includes(searchTerm);
+                const matchesSearch = (ch.name || '').toLowerCase().includes(searchTerm);
                 return matchesCountry && matchesSearch;
             });
 
@@ -694,6 +769,34 @@ console.log(allChannels);
             return card;
         }
 
+        function playChannel(channel) {
+            const playerModal = document.getElementById('playerModal');
+            const video = document.getElementById('videoPlayer');
+            const title = document.getElementById('playerChannelName');
+            const logo = document.getElementById('playerLogo');
+            
+            title.textContent = channel.name;
+            logo.src = channel.logo || '';
+            playerModal.classList.add('active');
+
+            if (Hls.isSupported()) {
+                if (hls) {
+                    hls.destroy();
+                }
+                hls = new Hls();
+                hls.loadSource(channel.url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    video.play().catch(e => console.log("Play interrupted", e));
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = channel.url;
+                video.addEventListener('loadedmetadata', function() {
+                    video.play().catch(e => console.log("Play interrupted", e));
+                });
+            }
+        }
+
         // This checks if the stream URL returns a 200 OK
         async function validateStream(url, cardElement) {
             const badge = cardElement.querySelector('.live-badge');
@@ -703,15 +806,11 @@ console.log(allChannels);
                     method: 'HEAD',
                     mode: 'no-cors'
                 });
-                // Note: 'no-cors' will always return status 0. 
-                // Truly validating IPTV requires a proxy or server-side check.
-                // For now, we assume if the fetch doesn't throw, it's reachable.
                 badge.textContent = 'ONLINE';
                 badge.classList.replace('status-checking', 'status-online');
             } catch (e) {
-                badge.textContent = 'OFFLINE';
-                badge.classList.replace('status-checking', 'status-offline');
-                cardElement.style.opacity = '0.5'; // Dim broken channels
+                // If fetch fails (CORS, mixed content, DNS error), we hide the channel to ensure only working show
+                cardElement.remove();
             }
         }
 
@@ -725,12 +824,11 @@ console.log(allChannels);
         });
 
         // Add a sentinel element at the bottom of your HTML: <div id="scrollSentinel"></div>
-        const sentinel = document.createElement('div');
-        sentinel.id = 'sentinel';
-        document.body.appendChild(sentinel);
-        observer.observe(sentinel);
+        const sentinel = document.getElementById('sentinel');
+        if (sentinel) {
+            observer.observe(sentinel);
+        }
 
-        // ... (Keep your playChannel and filter functions) ...
         fetchPlaylist();
     </script>
 </body>
